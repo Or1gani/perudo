@@ -1,12 +1,10 @@
-class Game:
-    def __init__(self):
-        self.a = []
-    def func(self, id):
-        self.a.append(id)
-g = Game()
-g1 = Game()
-g.func(123)
-g1.func(0)
+game_master = ({})
+id = 1230
+name = "Name"
+game_master[f"{id}"] = name
+if "1230" in game_master:
+    print(True)
+else:
+    print(False)
+print(game_master)
 
-print(g.a)
-print(g1.a)

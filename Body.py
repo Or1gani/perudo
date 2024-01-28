@@ -11,6 +11,8 @@ from aiogram.types import Message
 from aiogram.utils.markdown import hbold
 from aiogram import F
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+import random
+
 
 start_text = "Игра в 'Перудо'.\n"\
              " Каждый игрок получет по 5 игральных костей, затем определяется очередность хода. Каждый игрок перемешивает свои кости и в закрытую смотрит на выпавшие номиналы на костях.\n"\
@@ -36,8 +38,9 @@ start_text = "Игра в 'Перудо'.\n"\
              "  В раунде 'Мапута' единицы становятся ОБЫЧНЫМИ костями и перестают учитыватсья в ходе подсчета кубиков другого номинала, после вскрытия в конце раунда.\n"\
              "  УДАЧИ!"
 
-game_master = ({"id": 0, "fst_name": "", "snd_name": ""})
-game_players = ({"id": 0, "fst_name": "", "snd_name": ""})
+game_master = ({})
+game_players = ({})
+
 game_max_players = 4
 
 
@@ -68,8 +71,6 @@ class Game():
 
 g = Game()
 
-
-
 ###
 
 @dp.message(Command("id"))
@@ -99,8 +100,9 @@ async def display_rules(message : Message):
 
 @dp.message(F.text.lower() == "начать")
 async def game_create(message : Message):
-    if (game_master["id"] == 0):
-        game_master["id"], game_master["fst_name"], game_master["snd_name"] = message.from_user.id, message.from_user.first_name, message.from_user.last_name
+    global game_master
+    if (str(message.from_user.id) not in game_master):
+        game_master[f"{message.from_user.id}"] = message.from_user.first_name
         i = 4
         builder = InlineKeyboardBuilder()
         await message.answer(f"{message.from_user.first_name} - Cоздает лобби игры")
@@ -112,18 +114,30 @@ async def game_create(message : Message):
         builder.row(types.InlineKeyboardButton(text="Продолжить", callback_data="continue"), types.InlineKeyboardButton(text="Удалить лобби", callback_data="distruct")) ###########CALLBACK####################################
         await message.answer(f"Настройки\nКоличество игроков: {game_max_players}", reply_markup=builder.as_markup())
     else:
-        await message.answer(f"{game_master['fst_name']}, у вас уже есть активное лобби!")
+        await message.answer(f"{game_master[f'{message.from_user.id}']}, у вас уже есть активное лобби!")
+
+@dp.message(F.text.lower() == "s")
+async def learning(message : Message):
+    #await message.answer(f"{message.chat.id} ТЕКСТ!")
+    await bot.send_message(chat_id='886945416', text="ХУЙ")
+
+
+@dp.callback_query(F.data == "continue")
+async def continue_game(callback : types.CallbackQuery):
+    global game_master
+    await callback.message.delete()
+    builder = InlineKeyboardBuilder()
+    builder.row(types.InlineKeyboardButton(text="Открыть Лобби", callback_data="open"), types.InlineKeyboardButton(text="Удалить лобби", callback_data="distruct"))
+    await callback.message.answer(f"{game_master[f'{callback.from_user.id}']} - Открывает лобби", reply_markup=builder.as_markup())
 
 @dp.callback_query(F.data == "distruct")
 async def delete_lobby(callback : types.CallbackQuery):
     global game_master
-    await callback.message.answer(f"{game_master['fst_name']} - Удаляет лобби!")
+    await callback.message.answer(f"{game_master[f'{callback.from_user.id}']} - Удаляет лобби!")
     await callback.message.delete()
     game_master = ({"id": 0, "fst_name": "", "snd_name": ""})
     game_players = ({"id": 0, "fst_name": "", "snd_name": ""})
     game_max_players = 4
-
-
 
 @dp.callback_query(F.data == "p4")
 async def p4(callback: types.CallbackQuery):
@@ -164,15 +178,15 @@ async def p6(callback: types.CallbackQuery):
                 types.InlineKeyboardButton(text="Удалить лобби", callback_data="distruct"))
     await callback.message.edit_text(f"Настройки\nКоличество игроков: {game_max_players}", reply_markup=builder.as_markup())
 
-@dp.message(F.text.lower() == "начать2")
-async def display_rules(message : Message):
+@dp.callback_query(F.data =="open")
+async def display_rules(callback : types.CallbackQuery):
     builder = InlineKeyboardBuilder()
     builder.add(types.InlineKeyboardButton(
         text="Присоединиться",
         callback_data='id')
     )
-    await message.answer("Очередь на игру", reply_markup=builder.as_markup())
-    queue_msg_id = message.message_id
+    await callback.message.answer("Очередь на игру", reply_markup=builder.as_markup())
+    queue_msg_id = callback.message.message_id
 @dp.callback_query(F.data == "id")
 async def send_message(callback: types.CallbackQuery):
     if len(g.queue_names) <= game_max_players:
@@ -190,8 +204,6 @@ async def send_message(callback: types.CallbackQuery):
     else:
         await callback.message.answer('Очередь заполнена')
 #KEYBOARD START-----------------------------------------------------------------------------------
-
-
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, stream=sys.stdout)
