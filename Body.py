@@ -35,6 +35,12 @@ start_text = "Игра в 'Перудо'.\n"\
              "  ДОП. правило: Игрок, у которого остается ОДНА единственная кость, может объявить в любое время перед началом раунда раунд 'Мапута'.\n"\
              "  В раунде 'Мапута' единицы становятся ОБЫЧНЫМИ костями и перестают учитыватсья в ходе подсчета кубиков другого номинала, после вскрытия в конце раунда.\n"\
              "  УДАЧИ!"
+
+game_master = ({"id": 0, "fst_name": "", "snd_name": ""})
+game_players = ({"id": 0, "fst_name": "", "snd_name": ""})
+game_max_players = 4
+
+
 bot = Bot(token=TOKEN, parse_mode=ParseMode.HTML)
 dp = Dispatcher()
 
@@ -90,7 +96,75 @@ async def csh(message: Message):
 @dp.message(F.text.lower() == "правила")
 async def display_rules(message : Message):
     await message.answer(start_text)
+
 @dp.message(F.text.lower() == "начать")
+async def game_create(message : Message):
+    if (game_master["id"] == 0):
+        game_master["id"], game_master["fst_name"], game_master["snd_name"] = message.from_user.id, message.from_user.first_name, message.from_user.last_name
+        i = 4
+        builder = InlineKeyboardBuilder()
+        await message.answer(f"{message.from_user.first_name} - Cоздает лобби игры")
+        for i in range(4,7):
+            builder.add(types.InlineKeyboardButton(
+            text=f"{i}",
+            callback_data=f"p{i}")
+            )
+        builder.row(types.InlineKeyboardButton(text="Продолжить", callback_data="continue"), types.InlineKeyboardButton(text="Удалить лобби", callback_data="distruct")) ###########CALLBACK####################################
+        await message.answer(f"Настройки\nКоличество игроков: {game_max_players}", reply_markup=builder.as_markup())
+    else:
+        await message.answer(f"{game_master['fst_name']}, у вас уже есть активное лобби!")
+
+@dp.callback_query(F.data == "distruct")
+async def delete_lobby(callback : types.CallbackQuery):
+    global game_master
+    await callback.message.answer(f"{game_master['fst_name']} - Удаляет лобби!")
+    await callback.message.delete()
+    game_master = ({"id": 0, "fst_name": "", "snd_name": ""})
+    game_players = ({"id": 0, "fst_name": "", "snd_name": ""})
+    game_max_players = 4
+
+
+
+@dp.callback_query(F.data == "p4")
+async def p4(callback: types.CallbackQuery):
+    game_max_players = 4
+    builder = InlineKeyboardBuilder()
+    for i in range(4, 7):
+        builder.add(types.InlineKeyboardButton(
+            text=f"{i}",
+            callback_data=f"p{i}")
+        )
+    builder.row(types.InlineKeyboardButton(text="Продолжить", callback_data="continue"),
+                types.InlineKeyboardButton(text="Удалить лобби", callback_data="distruct"))
+    await callback.message.edit_text(f"Настройки\nКоличество игроков: {game_max_players}", reply_markup=builder.as_markup())
+
+@dp.callback_query(F.data == "p5")
+async def p5(callback: types.CallbackQuery):
+    game_max_players = 5
+    builder = InlineKeyboardBuilder()
+    for i in range(4, 7):
+        builder.add(types.InlineKeyboardButton(
+            text=f"{i}",
+            callback_data=f"p{i}")
+        )
+    builder.row(types.InlineKeyboardButton(text="Продолжить", callback_data="continue"),
+                types.InlineKeyboardButton(text="Удалить лобби", callback_data="distruct"))
+    await callback.message.edit_text(f"Настройки\nКоличество игроков: {game_max_players}", reply_markup=builder.as_markup())
+
+@dp.callback_query(F.data == "p6")
+async def p6(callback: types.CallbackQuery):
+    game_max_players = 6
+    builder = InlineKeyboardBuilder()
+    for i in range(4, 7):
+        builder.add(types.InlineKeyboardButton(
+            text=f"{i}",
+            callback_data=f"p{i}")
+        )
+    builder.row(types.InlineKeyboardButton(text="Продолжить", callback_data="continue"),
+                types.InlineKeyboardButton(text="Удалить лобби", callback_data="distruct"))
+    await callback.message.edit_text(f"Настройки\nКоличество игроков: {game_max_players}", reply_markup=builder.as_markup())
+
+@dp.message(F.text.lower() == "начать2")
 async def display_rules(message : Message):
     builder = InlineKeyboardBuilder()
     builder.add(types.InlineKeyboardButton(
@@ -101,7 +175,7 @@ async def display_rules(message : Message):
     queue_msg_id = message.message_id
 @dp.callback_query(F.data == "id")
 async def send_message(callback: types.CallbackQuery):
-    if len(g.queue_names) <= 6:
+    if len(g.queue_names) <= game_max_players:
         if(g.add_queue(callback.from_user.id) == True):
             g.queue_names.append(callback.from_user.first_name)
             await callback.message.answer(f"{callback.from_user.first_name}, вы встали в очередь на игру")
@@ -112,7 +186,7 @@ async def send_message(callback: types.CallbackQuery):
             text="Присоединиться",
             callback_data='id')
         )
-        await bot.edit_message_text(chat_id=callback.message.chat.id, message_id=callback.message.message_id, text=f"Очередь на игру({len(g.queue_names)}/6):\n{g.queue_names}",reply_markup=builder.as_markup())
+        await bot.edit_message_text(chat_id=callback.message.chat.id, message_id=callback.message.message_id, text=f"Очередь на игру({len(g.queue_names)}/{game_max_players}):\n{g.queue_names}",reply_markup=builder.as_markup())
     else:
         await callback.message.answer('Очередь заполнена')
 #KEYBOARD START-----------------------------------------------------------------------------------
