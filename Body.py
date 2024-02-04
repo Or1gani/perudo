@@ -11,7 +11,6 @@ from aiogram.types import Message
 from aiogram.utils.markdown import hbold
 from aiogram import F
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-import random
 
 
 start_text = "Игра в 'Перудо'.\n"\
@@ -119,7 +118,7 @@ async def game_create(message : Message):
             i = 4
             builder = InlineKeyboardBuilder()
             await message.answer(f"{message.from_user.first_name} - Cоздает лобби игры")
-            for i in range(4,7):
+            for i in range(2,7):
                 builder.add(types.InlineKeyboardButton(
                 text=f"{i}",
                 callback_data=f"p{i}")
@@ -152,6 +151,7 @@ async def delete_lobby(callback : types.CallbackQuery):
     global id_needed_lobby
     if str(callback.from_user.id) in game_master:
         await callback.message.answer(f"{game_master[f'{callback.from_user.id}']} - Удаляет лобби!")
+        g.lobby_id -= 1
         try:
             g.queue_id.pop(f"{game_master[f'{callback.from_user.id}']}")
         except KeyError:
@@ -171,12 +171,40 @@ async def delete_lobby(callback : types.CallbackQuery):
         g.queue_people_names = filtered_dict
     except KeyError:
         pass
+@dp.callback_query(F.data == "p2")
+async def p4(callback: types.CallbackQuery):
+    global game_max_players
+    game_max_players = 2
+    builder = InlineKeyboardBuilder()
+    for i in range(2, 7):
+        builder.add(types.InlineKeyboardButton(
+            text=f"{i}",
+            callback_data=f"p{i}")
+        )
+    builder.row(types.InlineKeyboardButton(text="Продолжить", callback_data="continue"),
+                types.InlineKeyboardButton(text="Удалить лобби", callback_data="distruct"))
+    await callback.message.edit_text(f"Настройки\nКоличество игроков: {game_max_players}", reply_markup=builder.as_markup())
+
+@dp.callback_query(F.data == "p3")
+async def p4(callback: types.CallbackQuery):
+    global game_max_players
+    game_max_players = 3
+    builder = InlineKeyboardBuilder()
+    for i in range(2, 7):
+        builder.add(types.InlineKeyboardButton(
+            text=f"{i}",
+            callback_data=f"p{i}")
+        )
+    builder.row(types.InlineKeyboardButton(text="Продолжить", callback_data="continue"),
+                types.InlineKeyboardButton(text="Удалить лобби", callback_data="distruct"))
+    await callback.message.edit_text(f"Настройки\nКоличество игроков: {game_max_players}", reply_markup=builder.as_markup())
 
 @dp.callback_query(F.data == "p4")
 async def p4(callback: types.CallbackQuery):
+    global game_max_players
     game_max_players = 4
     builder = InlineKeyboardBuilder()
-    for i in range(4, 7):
+    for i in range(2, 7):
         builder.add(types.InlineKeyboardButton(
             text=f"{i}",
             callback_data=f"p{i}")
@@ -187,9 +215,10 @@ async def p4(callback: types.CallbackQuery):
 
 @dp.callback_query(F.data == "p5")
 async def p5(callback: types.CallbackQuery):
+    global game_max_players
     game_max_players = 5
     builder = InlineKeyboardBuilder()
-    for i in range(4, 7):
+    for i in range(2, 7):
         builder.add(types.InlineKeyboardButton(
             text=f"{i}",
             callback_data=f"p{i}")
@@ -200,9 +229,10 @@ async def p5(callback: types.CallbackQuery):
 
 @dp.callback_query(F.data == "p6")
 async def p6(callback: types.CallbackQuery):
+    global game_max_players
     game_max_players = 6
     builder = InlineKeyboardBuilder()
-    for i in range(4, 7):
+    for i in range(2, 7):
         builder.add(types.InlineKeyboardButton(
             text=f"{i}",
             callback_data=f"p{i}")
@@ -230,6 +260,7 @@ async def display_rules(callback : types.CallbackQuery):
 @dp.callback_query(F.data == "leave")
 async def leave_lobby(callback : types.CallbackQuery):
     global game_max_players
+
     builder = InlineKeyboardBuilder()
     builder.add(types.InlineKeyboardButton(
         text="Присоединиться",
@@ -245,16 +276,20 @@ async def leave_lobby(callback : types.CallbackQuery):
         if str(g.queue_people_names[i]) == str(callback.message.message_id):
             value_of_players_in_lobby += 1
     key = callback.from_user.first_name
-    value = g.queue_people_names.pop(str(callback.from_user.first_name))
-    for key, value in g.queue_people_names.items():
-        if str(value) == str(callback.message.message_id):
+    if str(callback.from_user.first_name) in str(g.queue_people_names):
+        value = g.queue_people_names.pop(str(callback.from_user.first_name))
+    else:
+        return 0
+    for key, values in g.queue_people_names.items():
+        if str(values) == str(callback.message.message_id):
             k += key + ', '
 
     await callback.answer(text=f"{callback.from_user.first_name} - выходит из лобби!", cache_time=5, show_alert=True)
-    await bot.edit_message_text(chat_id=callback.message.chat.id, message_id=value,text=f"Очередь на игру({value_of_players_in_lobby}/{game_max_players}):\n{k}",reply_markup=builder.as_markup())
-    value_of_players_in_lobby = 0
+    await bot.edit_message_text(chat_id=callback.message.chat.id, message_id=value, text=f"Очередь на игру({value_of_players_in_lobby}/{game_max_players}):\n{k}",reply_markup=builder.as_markup())
+    #value_of_players_in_lobby = 0
     k = ""
     if value_of_players_in_lobby == 0:
+        g.lobby_id -= 1
         if str(callback.from_user.id) in game_master:
             await callback.message.answer(f"{game_master[f'{callback.from_user.id}']} - Удаляет лобби!")
             try:
