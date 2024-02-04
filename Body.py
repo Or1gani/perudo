@@ -8,11 +8,14 @@ from config import TOKEN
 from aiogram import Bot, Dispatcher, Router, types
 from aiogram.enums import ParseMode
 from aiogram.filters import CommandStart, Command
-from aiogram.types import Message
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.utils.markdown import hbold
 from aiogram import F
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from random import randint
+#Машина состояний
+from aiogram.fsm.storage.memory import MemoryStorage
+
 
 start_text = "Игра в 'Перудо'.\n"\
              " Каждый игрок получет по 5 игральных костей, затем определяется очередность хода. Каждый игрок перемешивает свои кости и в закрытую смотрит на выпавшие номиналы на костях.\n"\
@@ -43,14 +46,14 @@ game_players = ({}) # -
 id_needed_lobby = []
 game_max_players = 4
 
+storage = MemoryStorage()
 
 bot = Bot(token=TOKEN, parse_mode=ParseMode.HTML)
-dp = Dispatcher()
+dp = Dispatcher(storage=storage)
 
 async def main():
 
     await dp.start_polling(bot)
-
 
 
 class Player():
@@ -97,6 +100,7 @@ class Session():
         ]
     async def int_into_emoji(self, p : Player):
         c_id = p.p_id
+
         dices = p.dice_value
         for i in dices:
             if i == 1:
@@ -113,16 +117,15 @@ class Session():
                 await bot.send_sticker(chat_id= c_id,sticker=self.dice_stickers[5])
 
 
-    async def start_game(self, *p : Player):
-        isFold = True
+    async def start_game(self, p : Player, chat_id):
         turn_order = []
+        incounter = 0
         for i in range(len(self.player_name)):
             turn_order.append(p[i].p_name)
+        print(turn_order)
         for i in p:
             await self.int_into_emoji(i)
-        while isFold:
 
-            pass
 sessions = []
 players = []
 g = Game()
@@ -174,11 +177,6 @@ async def game_create(message : Message):
     else:
         await message.answer(f"{message.from_user.first_name}, к сожалению вы уже присоединились к активному лобби!")
 
-@dp.message(F.text.lower() == "s")
-async def learning(message : Message):
-    #await message.answer(f"{message.from_user.first_name, type(message.from_user.first_name)}")
-    await bot.send_message(chat_id='886945416', text="ХУЙ")
-
 
 @dp.callback_query(F.data == "continue")
 async def continue_game(callback : types.CallbackQuery):
@@ -187,7 +185,6 @@ async def continue_game(callback : types.CallbackQuery):
     builder = InlineKeyboardBuilder()
     builder.row(types.InlineKeyboardButton(text="Открыть Лобби", callback_data="open"), types.InlineKeyboardButton(text="Удалить лобби", callback_data="distruct"))
     await callback.message.answer(f"{game_master[f'{callback.from_user.id}']} - Открывает лобби", reply_markup=builder.as_markup())
-
 
 @dp.callback_query(F.data == "distruct")
 async def delete_lobby(callback : types.CallbackQuery):
@@ -413,6 +410,17 @@ async def send_message(callback: types.CallbackQuery):
             value_of_players_in_lobby += 1
         else:
             await callback.message.answer(f"{callback.from_user.first_name}, Вы уже стоите в очереди на игру")
+    k = ''
+    for key, value in g.queue_people_names.items():
+        if value == id_needed_lobby[len(id_needed_lobby) - 1]:
+            k += key + ', '
+    try:
+        await bot.edit_message_text(chat_id=callback.message.chat.id,
+                                    message_id=id_needed_lobby[len(id_needed_lobby) - 1],
+                                    text=f"Очередь на игру({value_of_players_in_lobby}/{game_max_players}):\n{k}",
+                                    reply_markup=builder.as_markup())
+    except aiogram.exceptions.TelegramBadRequest:
+        pass
     if value_of_players_in_lobby == game_max_players:
         await callback.message.answer('Начинаем')
 
@@ -433,29 +441,21 @@ async def send_message(callback: types.CallbackQuery):
             for j in range(5):
                 random_value.append(randint(1, 6))
             players.append(Player(player_ids[i], player_names[i], 5, random_value))
-
-        print()
-        print(players[0].p_id)
-        print(players[0].p_name)
-        print(players[0].dice_amount)
-        print(players[0].dice_value)
-        print()
+        for i in range(0,2):
+            print()
+            print(players[i].p_id)
+            print(players[i].p_name)
+            print(players[i].dice_amount)
+            print(players[i].dice_value)
+            print()
         #await sessions[0].start_game(players[0])
-        for i in range(len(sessions)):
-            await sessions[i].start_game(players[i])
+        chat_id = callback.message.chat.id
+
+        await sessions[len(sessions)-1].start_game(players, chat_id=chat_id)
+        players.clear()
+        await callback.message.delete()
 
 
-    k = ''
-    for key, value in g.queue_people_names.items():
-        if value == id_needed_lobby[len(id_needed_lobby)-1]:
-            k += key + ', '
-    try:
-        await bot.edit_message_text(chat_id=callback.message.chat.id,
-                                    message_id=id_needed_lobby[len(id_needed_lobby) - 1],
-                                    text=f"Очередь на игру({value_of_players_in_lobby}/{game_max_players}):\n{k}",
-                                    reply_markup=builder.as_markup())
-    except aiogram.exceptions.TelegramBadRequest:
-        pass
 
 
 #KEYBOARD START-----------------------------------------------------------------------------------
