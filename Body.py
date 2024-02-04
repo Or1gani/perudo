@@ -96,24 +96,22 @@ class Session():
             "CAACAgIAAxkBAAEDQ1FlvyjdoNAKnhr9v95EAspKYqbk-QACAT0AAtoeAUqBpmakpJ4VFjQE"
         ]
     async def int_into_emoji(self, p : Player):
-        c_id = []
-        c_id.append(p.p_id)
+        c_id = p.p_id
         dices = p.dice_value
-        for j in c_id:
-            for i in dices:
-                if i == 1:
-                    await bot.send_sticker(chat_id= j, sticker=self.dice_stickers[0])
-                elif i == 2:
-                    await bot.send_sticker(chat_id= j,sticker=self.dice_stickers[1])
-                elif i == 3:
-                    await bot.send_sticker(chat_id= j,sticker=self.dice_stickers[2])
-                elif i == 4:
-                    await bot.send_sticker(chat_id= j,sticker=self.dice_stickers[3])
-                elif i == 5:
-                    await bot.send_sticker(chat_id= j,sticker=self.dice_stickers[4])
-                else:
-                    await bot.send_sticker(chat_id= j,sticker=self.dice_stickers[5])
-            await bot.send_message(chat_id=j, text=f"Ваши кубы")
+        for i in dices:
+            if i == 1:
+                await bot.send_sticker(chat_id= c_id, sticker=self.dice_stickers[0])
+            elif i == 2:
+                await bot.send_sticker(chat_id= c_id,sticker=self.dice_stickers[1])
+            elif i == 3:
+                await bot.send_sticker(chat_id= c_id,sticker=self.dice_stickers[2])
+            elif i == 4:
+                await bot.send_sticker(chat_id= c_id,sticker=self.dice_stickers[3])
+            elif i == 5:
+                await bot.send_sticker(chat_id= c_id,sticker=self.dice_stickers[4])
+            else:
+                await bot.send_sticker(chat_id= c_id,sticker=self.dice_stickers[5])
+
 
     async def start_game(self, *p : Player):
         isFold = True
@@ -435,14 +433,17 @@ async def send_message(callback: types.CallbackQuery):
             for j in range(5):
                 random_value.append(randint(1, 6))
             players.append(Player(player_ids[i], player_names[i], 5, random_value))
-        #await bot.send_sticker(chat_id=players[0].p_id, sticker="CAACAgIAAxkBAAEDQ0dlvyjVqzlFoF5eEKv8soiwFmJQgQACx0IAApz5-EmsuMzL_y9kZTQE")
+
         print()
         print(players[0].p_id)
         print(players[0].p_name)
         print(players[0].dice_amount)
         print(players[0].dice_value)
         print()
-        await sessions[0].start_game(players[0])
+        #await sessions[0].start_game(players[0])
+        for i in range(len(sessions)):
+            await sessions[i].start_game(players[i])
+
 
     k = ''
     for key, value in g.queue_people_names.items():
