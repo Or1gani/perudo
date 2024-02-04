@@ -12,6 +12,7 @@ from aiogram.types import Message
 from aiogram.utils.markdown import hbold
 from aiogram import F
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from random import randint
 
 start_text = "Игра в 'Перудо'.\n"\
              " Каждый игрок получет по 5 игральных костей, затем определяется очередность хода. Каждый игрок перемешивает свои кости и в закрытую смотрит на выпавшие номиналы на костях.\n"\
@@ -53,10 +54,11 @@ async def main():
 
 
 class Player():
-    p_id = 0 #player id
-    p_name = "name" #player tg name
-    dice_amount = 5
-    dice_value = [""] #contain diece values
+    def __init__(self, p_id, p_name, dice_amount, dice_value):
+        self.p_id = p_id #player id
+        self.p_name = p_name #player tg name
+        self.dice_amount = dice_amount
+        self.dice_value = dice_value #contain diece values
 class Game():
     def __init__(self):
         self.lobby_id = 1
@@ -80,7 +82,51 @@ class Game():
         if game_master_id not in game_master:
             self.queue_id[f"{msg_id}"] = self.lobby_id
             self.lobby_id += 1
+class Session():
+    def __init__(self, lobby_id, player_name,player_id):
+        self.lobby_id = lobby_id
+        self.player_name = player_name
+        self.player_id = player_id
+        self.dice_stickers = [
+            "CAACAgIAAxkBAAEDQ0dlvyjVqzlFoF5eEKv8soiwFmJQgQACx0IAApz5-EmsuMzL_y9kZTQE",
+            "CAACAgIAAxkBAAEDQ0llvyjYFOLzPFVj_g_pRtuqoHxgYwACBkYAAnLw-UlniV4oA3b8lDQE",
+            "CAACAgIAAxkBAAEDQ0tlvyjZLgOSE7UQ9tUtuKck25DF0AACfTkAAltB-EkDYkBoIWFFkDQE",
+            "CAACAgIAAxkBAAEDQ01lvyjbFUVTRyMpEDxkKgF2EPa3nAAC-DwAAmdo-Um3xGOLFpHgGDQE",
+            "CAACAgIAAxkBAAEDQ09lvyjch_py0eqblrOCtaznCqZmjAACRDsAAqfy-UmzeOvOrHtInDQE",
+            "CAACAgIAAxkBAAEDQ1FlvyjdoNAKnhr9v95EAspKYqbk-QACAT0AAtoeAUqBpmakpJ4VFjQE"
+        ]
+    async def int_into_emoji(self, p : Player):
+        c_id = []
+        c_id.append(p.p_id)
+        dices = p.dice_value
+        for j in c_id:
+            for i in dices:
+                if i == 1:
+                    await bot.send_sticker(chat_id= j, sticker=self.dice_stickers[0])
+                elif i == 2:
+                    await bot.send_sticker(chat_id= j,sticker=self.dice_stickers[1])
+                elif i == 3:
+                    await bot.send_sticker(chat_id= j,sticker=self.dice_stickers[2])
+                elif i == 4:
+                    await bot.send_sticker(chat_id= j,sticker=self.dice_stickers[3])
+                elif i == 5:
+                    await bot.send_sticker(chat_id= j,sticker=self.dice_stickers[4])
+                else:
+                    await bot.send_sticker(chat_id= j,sticker=self.dice_stickers[5])
+            await bot.send_message(chat_id=j, text=f"Ваши кубы")
 
+    async def start_game(self, *p : Player):
+        isFold = True
+        turn_order = []
+        for i in range(len(self.player_name)):
+            turn_order.append(p[i].p_name)
+        for i in p:
+            await self.int_into_emoji(i)
+        while isFold:
+
+            pass
+sessions = []
+players = []
 g = Game()
 
 ###not-for-user-debug
@@ -118,7 +164,7 @@ async def game_create(message : Message):
             i = 4
             builder = InlineKeyboardBuilder()
             await message.answer(f"{message.from_user.first_name} - Cоздает лобби игры")
-            for i in range(2,7):
+            for i in range(1,7):
                 builder.add(types.InlineKeyboardButton(
                 text=f"{i}",
                 callback_data=f"p{i}")
@@ -180,6 +226,20 @@ async def delete_lobby(callback : types.CallbackQuery):
         g.queue_people_names = filtered_dict
     except KeyError:
         pass
+@dp.callback_query(F.data == "p1")
+async def p4(callback: types.CallbackQuery):
+    global game_max_players
+    game_max_players = 1
+    builder = InlineKeyboardBuilder()
+    for i in range(2, 7):
+        builder.add(types.InlineKeyboardButton(
+            text=f"{i}",
+            callback_data=f"p{i}")
+        )
+    builder.row(types.InlineKeyboardButton(text="Продолжить", callback_data="continue"),
+                types.InlineKeyboardButton(text="Удалить лобби", callback_data="distruct"))
+    await callback.message.edit_text(f"Настройки\nКоличество игроков: {game_max_players}", reply_markup=builder.as_markup())
+
 @dp.callback_query(F.data == "p2")
 async def p4(callback: types.CallbackQuery):
     global game_max_players
@@ -277,7 +337,7 @@ async def leave_lobby(callback : types.CallbackQuery):
         if str(value) != str(lobby_to_delete):
             filtered_dict[key] = value
     g.queue_people = filtered_dict
-    
+
     builder = InlineKeyboardBuilder()
     builder.add(types.InlineKeyboardButton(
         text="Присоединиться",
@@ -344,20 +404,46 @@ async def send_message(callback: types.CallbackQuery):
         if i in g.queue_id:
             id_needed_lobby.append(g.queue_id[i])
             id_needed_lobby.append(i)
-
     value_of_players_in_lobby = 0
     for i in g.queue_people_names:
         if g.queue_people_names[i] == id_needed_lobby[len(id_needed_lobby)-1]:
             value_of_players_in_lobby += 1
-    if value_of_players_in_lobby <= game_max_players:
+    if value_of_players_in_lobby < game_max_players:
         if (g.add_player(callback.from_user.id, id_needed_lobby[len(id_needed_lobby)-2]) == True):
             g.queue_people_names[f"{callback.from_user.first_name}"] = id_needed_lobby[len(id_needed_lobby) - 1]
             await callback.message.answer(f"{callback.from_user.first_name}, вы встали в очередь на игру")
             value_of_players_in_lobby += 1
         else:
             await callback.message.answer(f"{callback.from_user.first_name}, Вы уже стоите в очереди на игру")
-    else:
-        await callback.message.answer('Очередь заполнена')
+    if value_of_players_in_lobby == game_max_players:
+        await callback.message.answer('Начинаем')
+
+        #Начало сессии
+        player_names = []
+        player_ids = []
+
+        for key, value in g.queue_people_names.items():
+            if str(value) == str(callback.message.message_id):
+                player_names.append(key)
+        for key, value in g.queue_people.items():
+            if str(value) == str(id_needed_lobby[len(id_needed_lobby)-2]):
+                player_ids.append(key)
+
+        sessions.append(Session(id_needed_lobby[len(id_needed_lobby)-2], player_names, player_ids))
+        for i in range(len(player_names)):
+            random_value = []
+            for j in range(5):
+                random_value.append(randint(1, 6))
+            players.append(Player(player_ids[i], player_names[i], 5, random_value))
+        #await bot.send_sticker(chat_id=players[0].p_id, sticker="CAACAgIAAxkBAAEDQ0dlvyjVqzlFoF5eEKv8soiwFmJQgQACx0IAApz5-EmsuMzL_y9kZTQE")
+        print()
+        print(players[0].p_id)
+        print(players[0].p_name)
+        print(players[0].dice_amount)
+        print(players[0].dice_value)
+        print()
+        await sessions[0].start_game(players[0])
+
     k = ''
     for key, value in g.queue_people_names.items():
         if value == id_needed_lobby[len(id_needed_lobby)-1]:
