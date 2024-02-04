@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import sys
+import aiogram.exceptions
 import aiogram
 from os import getenv
 from config import TOKEN
@@ -11,7 +12,6 @@ from aiogram.types import Message
 from aiogram.utils.markdown import hbold
 from aiogram import F
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-
 
 start_text = "Игра в 'Перудо'.\n"\
              " Каждый игрок получет по 5 игральных костей, затем определяется очередность хода. Каждый игрок перемешивает свои кости и в закрытую смотрит на выпавшие номиналы на костях.\n"\
@@ -70,7 +70,7 @@ class Game():
             self.queue.append(p_id)
             return True
     def add_player(self, player_id, needed_lobby):
-        if player_id in self.queue_people:
+        if str(player_id) in self.queue_people:
             return False
         else:
             self.queue_people[f"{player_id}"] = needed_lobby
@@ -148,7 +148,16 @@ async def continue_game(callback : types.CallbackQuery):
 @dp.callback_query(F.data == "distruct")
 async def delete_lobby(callback : types.CallbackQuery):
     global game_master
+    global game_max_players
     global id_needed_lobby
+
+    if str(callback.message.message_id) in g.queue_id:
+        lobby_to_delete = g.queue_id[str(callback.message.message_id)]
+    filtered_dict = {}
+    for key, value in g.queue_people.items():
+        if str(value) != str(lobby_to_delete):
+            filtered_dict[key] = value
+    g.queue_people = filtered_dict
     if str(callback.from_user.id) in game_master:
         await callback.message.answer(f"{game_master[f'{callback.from_user.id}']} - Удаляет лобби!")
         g.lobby_id -= 1
@@ -261,6 +270,14 @@ async def display_rules(callback : types.CallbackQuery):
 async def leave_lobby(callback : types.CallbackQuery):
     global game_max_players
 
+    if str(callback.message.message_id) in g.queue_id:
+            lobby_to_delete = g.queue_id[str(callback.message.message_id)]
+    filtered_dict = {}
+    for key, value in g.queue_people.items():
+        if str(value) != str(lobby_to_delete):
+            filtered_dict[key] = value
+    g.queue_people = filtered_dict
+    
     builder = InlineKeyboardBuilder()
     builder.add(types.InlineKeyboardButton(
         text="Присоединиться",
@@ -328,31 +345,31 @@ async def send_message(callback: types.CallbackQuery):
             id_needed_lobby.append(g.queue_id[i])
             id_needed_lobby.append(i)
 
-    g.queue_people[f'{callback.from_user.id}'] = id_needed_lobby[0]
-
     value_of_players_in_lobby = 0
-
+    for i in g.queue_people_names:
+        if g.queue_people_names[i] == id_needed_lobby[len(id_needed_lobby)-1]:
+            value_of_players_in_lobby += 1
     if value_of_players_in_lobby <= game_max_players:
-        if (g.add_player(callback.from_user.id, id_needed_lobby[len(id_needed_lobby)-1]) == True):
-            #g.queue_people_names[callback.from_user.first_name] = str(id_needed_lobby[id_needed_lobby[len(id_needed_lobby)-1]])
+        if (g.add_player(callback.from_user.id, id_needed_lobby[len(id_needed_lobby)-2]) == True):
             g.queue_people_names[f"{callback.from_user.first_name}"] = id_needed_lobby[len(id_needed_lobby) - 1]
             await callback.message.answer(f"{callback.from_user.first_name}, вы встали в очередь на игру")
+            value_of_players_in_lobby += 1
         else:
             await callback.message.answer(f"{callback.from_user.first_name}, Вы уже стоите в очереди на игру")
     else:
         await callback.message.answer('Очередь заполнена')
     k = ''
-    #for i in list(g.queue_people_names.keys()):
-    #    k += i + ", "
     for key, value in g.queue_people_names.items():
         if value == id_needed_lobby[len(id_needed_lobby)-1]:
             k += key + ', '
-    #await callback.message.answer(f'{id_needed_lobby[len(id_needed_lobby)-1]}')
-    for i in g.queue_people_names:
-        if g.queue_people_names[i] == id_needed_lobby[len(id_needed_lobby)-1]:
-            value_of_players_in_lobby += 1
-    #await bot.send_message(text=f"{g.queue_people_names} INL", chat_id=callback.message.chat.id)
-    await bot.edit_message_text(chat_id=callback.message.chat.id, message_id=id_needed_lobby[len(id_needed_lobby)-1],text=f"Очередь на игру({value_of_players_in_lobby}/{game_max_players}):\n{k}",reply_markup=builder.as_markup())
+    try:
+        await bot.edit_message_text(chat_id=callback.message.chat.id,
+                                    message_id=id_needed_lobby[len(id_needed_lobby) - 1],
+                                    text=f"Очередь на игру({value_of_players_in_lobby}/{game_max_players}):\n{k}",
+                                    reply_markup=builder.as_markup())
+    except aiogram.exceptions.TelegramBadRequest:
+        pass
+
 
 #KEYBOARD START-----------------------------------------------------------------------------------
 
