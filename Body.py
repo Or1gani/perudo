@@ -4,6 +4,7 @@ import sys
 import aiogram.exceptions
 import aiogram
 from os import getenv
+
 from config import TOKEN
 from aiogram import Bot, Dispatcher, Router, types
 from aiogram.enums import ParseMode
@@ -15,6 +16,12 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from random import randint
 #Машина состояний
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+
+import utils.states as s
+from keyboards import kb
+from game import game_states as gs
 
 
 start_text = "Игра в 'Перудо'.\n"\
@@ -53,7 +60,7 @@ dp = Dispatcher(storage=storage)
 
 async def main():
 
-    await dp.start_polling(bot)
+    await dp.start_polling(bot, skip_updates=True)
 
 
 class Player():
@@ -90,6 +97,7 @@ class Session():
         self.lobby_id = lobby_id
         self.player_name = player_name
         self.player_id = player_id
+        self.turn_order = []
         self.dice_stickers = [
             "CAACAgIAAxkBAAEDQ0dlvyjVqzlFoF5eEKv8soiwFmJQgQACx0IAApz5-EmsuMzL_y9kZTQE",
             "CAACAgIAAxkBAAEDQ0llvyjYFOLzPFVj_g_pRtuqoHxgYwACBkYAAnLw-UlniV4oA3b8lDQE",
@@ -118,25 +126,45 @@ class Session():
 
 
     async def start_game(self, p : Player, chat_id):
-        turn_order = []
+        self.turn_order = []
         incounter = 0
         for i in range(len(self.player_name)):
-            turn_order.append(p[i].p_name)
-        print(turn_order)
+            self.turn_order.append(p[i].p_name)
+        print(self.turn_order)
         for i in p:
             await self.int_into_emoji(i)
+
+    async def game(self, callback: types.CallbackQuery, state: FSMContext):
+        current_person = ""
+        current_bet = []
+        for i, name in enumerate(self.turn_order):
+            if i == 0:
+                current_person = f"{name}";
+                await gs.turn_message(callback, self.turn_order, current_person)
+                await state.set_state(s.Turn.state_list[0])
+                print("Я ПЕРЕШЕЛ В СТЕЙТ")
+            if i != 0:
+                current_person = f"{name}"
 
 sessions = []
 players = []
 g = Game()
+#Gamebeggin
 
-###not-for-user-debug
+@dp.message(F.text.lower() == "/startgame")
+async def game_beggin(message : Message):
+    #проверка, является ли человек участником последнего лобби и является ли он создателем этого лобби.
+    if f"{message.from_user.id}" in sessions[len(sessions)-1].player_id and str(message.from_user.id) in game_master:
 
-@dp.message(Command("id"))
-async def any_message(message: Message):
-    await message.answer(f"{message.from_user.id}")
+        #Дальше тут написать вход в первое состояние машины состояний. Надеюсь заработает
+        #Машина состояний в файле game_states.py
+        #класс машины состояний в states.py
+        #
 
-###not-for-user-debug
+        await message.answer("!")
+    pass
+
+###########
 
 #KEYBOARD START-----------------------------------------------------------------------------------
 @dp.message(CommandStart())
@@ -385,7 +413,7 @@ async def leave_lobby(callback : types.CallbackQuery):
             pass
 
 @dp.callback_query(F.data == "id")
-async def send_message(callback: types.CallbackQuery):
+async def send_message(callback: types.CallbackQuery, state : FSMContext):
     global id_needed_lobby
     builder = InlineKeyboardBuilder()
     builder.add(types.InlineKeyboardButton(
@@ -422,25 +450,30 @@ async def send_message(callback: types.CallbackQuery):
     except aiogram.exceptions.TelegramBadRequest:
         pass
     if value_of_players_in_lobby == game_max_players:
-        await callback.message.answer('Начинаем')
+        #await callback.message.answer('Начинаем')
 
         #Начало сессии
         player_names = []
         player_ids = []
 
+        #Заполнение всех имен пользваотелей
         for key, value in g.queue_people_names.items():
             if str(value) == str(callback.message.message_id):
                 player_names.append(key)
+        # Заполнение всех ID пользваотелей
         for key, value in g.queue_people.items():
             if str(value) == str(id_needed_lobby[len(id_needed_lobby)-2]):
                 player_ids.append(key)
-
+        #Создание сесси со всеми данными о пользователях
         sessions.append(Session(id_needed_lobby[len(id_needed_lobby)-2], player_names, player_ids))
+        #Заполнение Данных о пользователе в экземпляры Players
         for i in range(len(player_names)):
             random_value = []
             for j in range(5):
                 random_value.append(randint(1, 6))
             players.append(Player(player_ids[i], player_names[i], 5, random_value))
+
+        #Проверка данных-------------------
         for i in range(0,2):
             print()
             print(players[i].p_id)
@@ -448,12 +481,21 @@ async def send_message(callback: types.CallbackQuery):
             print(players[i].dice_amount)
             print(players[i].dice_value)
             print()
-        #await sessions[0].start_game(players[0])
+        # Проверка данных-------------------
+
         chat_id = callback.message.chat.id
 
+        # Запуск игры
+        #Запуск последней созданной сессии и заполнение очереди в start_game и отправка в лс костей для игры
         await sessions[len(sessions)-1].start_game(players, chat_id=chat_id)
+        await callback.message.answer(f"{callback.from_user.first_name}, для начала игры введите /startgame")
+
+        #очистка пользователей
         players.clear()
         await callback.message.delete()
+
+
+
 
 
 
