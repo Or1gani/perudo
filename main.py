@@ -1,5 +1,4 @@
-import re
-keys = {"1":"Единица", "2":"Двойка", "3":"Тройка", "4":"Четверка", "5":"Пятерка", "6":"Шестерка"}
-text = "1"
-if text in keys:
-    print(keys[text])
+x = "123"
+y = int(x)
+print(y)
+print(type(y))

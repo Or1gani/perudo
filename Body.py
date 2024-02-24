@@ -1,10 +1,13 @@
 import asyncio
 import logging
 import sys
+import time
+
 import aiogram.exceptions
 import aiogram
 from os import getenv
 
+from aiogram.fsm.storage.base import StorageKey
 from config import TOKEN
 from aiogram import Bot, Dispatcher, Router, types
 from aiogram.enums import ParseMode
@@ -93,11 +96,16 @@ class Game():
             self.queue_id[f"{msg_id}"] = self.lobby_id
             self.lobby_id += 1
 class Session():
-    def __init__(self, lobby_id, player_name,player_id):
+    def __init__(self, lobby_id, player_name,player_id,chat_id, players):
         self.lobby_id = lobby_id
         self.player_name = player_name
         self.player_id = player_id
         self.turn_order = []
+        self.turn_order_ids = []
+        self.current_turn = 0
+        self.chat_id = chat_id
+        self.current_bet = 0
+        self.players : Player = players
         self.dice_stickers = [
             "CAACAgIAAxkBAAEDQ0dlvyjVqzlFoF5eEKv8soiwFmJQgQACx0IAApz5-EmsuMzL_y9kZTQE",
             "CAACAgIAAxkBAAEDQ0llvyjYFOLzPFVj_g_pRtuqoHxgYwACBkYAAnLw-UlniV4oA3b8lDQE",
@@ -110,6 +118,8 @@ class Session():
         c_id = p.p_id
 
         dices = p.dice_value
+        await bot.send_message(chat_id= c_id, text=f"Ваши кости: {dices}")
+        time.sleep(1)
         for i in dices:
             if i == 1:
                 await bot.send_sticker(chat_id= c_id, sticker=self.dice_stickers[0])
@@ -123,16 +133,24 @@ class Session():
                 await bot.send_sticker(chat_id= c_id,sticker=self.dice_stickers[4])
             else:
                 await bot.send_sticker(chat_id= c_id,sticker=self.dice_stickers[5])
+        await bot.send_message(chat_id=c_id, text=f"Ваши кости: {dices}")
 
-
-    async def start_game(self, p : Player, chat_id):
+    async def start_game(self, p : Player):
         self.turn_order = []
         incounter = 0
         for i in range(len(self.player_name)):
             self.turn_order.append(p[i].p_name)
-        print(self.turn_order)
+        for i in range(len(self.player_id)):
+            self.turn_order_ids.append(p[i].p_id)
         for i in p:
             await self.int_into_emoji(i)
+
+    def c_p_t(self):
+        if self.current_turn == len(self.turn_order) or self.current_turn == 0:
+            self.current_turn = 0
+        else:
+            self.current_turn += 1
+        return self.current_turn
 
     async def game(self, callback: types.CallbackQuery, state: FSMContext):
         current_person = ""
@@ -142,27 +160,168 @@ class Session():
                 current_person = f"{name}";
                 await gs.turn_message(callback, self.turn_order, current_person)
                 await state.set_state(s.Turn.state_list[0])
-                print("Я ПЕРЕШЕЛ В СТЕЙТ")
             if i != 0:
                 current_person = f"{name}"
 
 sessions = []
-players = []
+
 g = Game()
 #Gamebeggin
 
+async def c_s(message: Message, s): #current_session
+    for i in s:
+        if message.from_user.first_name in i.player_name:
+            return i
 @dp.message(F.text.lower() == "/startgame")
-async def game_beggin(message : Message):
+async def game_beggin(message : Message,  state: FSMContext):
     #проверка, является ли человек участником последнего лобби и является ли он создателем этого лобби.
     if f"{message.from_user.id}" in sessions[len(sessions)-1].player_id and str(message.from_user.id) in game_master:
+        current_sesson = await c_s(message, sessions)
+        turn_order = current_sesson.turn_order
+        current_person = turn_order[current_sesson.c_p_t()]
+        next_person_id = ""
+        next_person_name = ""
+        for count, value in enumerate(current_sesson.turn_order_ids):
+            if str(value) == str(message.from_user.id):
+                if count != len(current_sesson.turn_order_ids) - 1:
+                    next_person_id = int(current_sesson.turn_order_ids[count + 1])
+                    next_person_name = current_sesson.turn_order[count + 1]
+                else:
+                    next_person_id = int(current_sesson.turn_order_ids[0])
+                    next_person_name = current_sesson.turn_order[0]
 
-        #Дальше тут написать вход в первое состояние машины состояний. Надеюсь заработает
-        #Машина состояний в файле game_states.py
-        #класс машины состояний в states.py
-        #
+        state_with: FSMContext = FSMContext(
+            storage=dp.storage,
+            key=StorageKey(
+                chat_id=current_sesson.chat_id,  # если юзер в ЛС, то chat_id=user_id
+                user_id=next_person_id,
+                bot_id=bot.id))
+        if str(current_person) == str(message.from_user.first_name):
+            await message.answer(f"Ходит: {current_sesson.turn_order[current_sesson.current_turn]}\r\nCделайте ставку, введя две цифры, где:\r\nПервая - Номинал\r\nВторая - Количество")
+            await state.set_state(s.Turn.israise)
 
-        await message.answer("!")
-    pass
+        else:
+            await message.answer(f"Ходит: {current_sesson.turn_order[current_sesson.current_turn]}")
+            await state.set_state(None)
+            await state_with.set_state(s.Turn.israise)
+
+
+
+@dp.message(s.Turn.israise)
+async def raise_state(message: Message, state: FSMContext):
+    text = message.text
+    current_sesson = await c_s(message, sessions)
+    turn_order = current_sesson.turn_order
+    current_person = turn_order[current_sesson.c_p_t()]
+    if gs.string_to_format(text):
+        bet = gs.string_to_format(text)[1]
+        current_sesson.current_bet = int(bet)
+        value = gs.bet_to_format(bet)
+        amount = bet[1]
+        await message.answer(f"{current_person}, ваша ставка, что на столе:\r\n{value}: {amount} шт.")
+        await state.update_data(bet=text,currnet_person=current_person) # пример {'israise': '12'} 12 это ставка
+        current_sesson.c_p_t()
+        current_person = turn_order[current_sesson.current_turn]
+        next_person_id = ""
+        next_person_name = ""
+        for count, value in enumerate(current_sesson.turn_order_ids):
+            if str(value) == str(message.from_user.id):
+                if count != len(current_sesson.turn_order_ids)-1:
+                    next_person_id = int(current_sesson.turn_order_ids[count+1])
+                    next_person_name = current_sesson.turn_order[count+1]
+                else:
+                    next_person_id = int(current_sesson.turn_order_ids[0])
+                    next_person_name = current_sesson.turn_order[0]
+        state_with: FSMContext = FSMContext(
+            storage=dp.storage,
+            key=StorageKey(
+                chat_id=current_sesson.chat_id,  # если юзер в ЛС, то chat_id=user_id
+                user_id=next_person_id,
+                bot_id=bot.id))
+        await state_with.set_state(s.Turn.raise_or_open)
+        await state.set_state(None)
+        await message.answer(f"Ходит: {next_person_name}\r\nТекущая ставка: {current_sesson.current_bet}\r\nСделайте ставку, если вы согласны или напишите 'нет'")
+    else:
+        await message.delete()
+        await message.answer("Ошибка ввода")
+        await raise_state(message, state, current_person)
+
+@dp.message(s.Turn.raise_or_open)
+async def roo(message : Message, state : FSMContext):
+    text = message.text
+    current_sesson = await c_s(message, sessions)
+    turn_order = current_sesson.turn_order
+    current_person = message.from_user.first_name
+
+    bet = str(current_sesson.current_bet)
+
+    b1 = int(bet[0])  # номинал прошлой ставки
+    b2 = int(bet[1])  # значение прошлой ставки
+    if text.lower() == 'нет' or text.lower() == 'не cогласен' or text.lower() == 'не':
+        await message.answer(f"{current_person} - не согласен со ставкой! Вскрываемся.")
+        summary_dices_amount = 0
+        summary_dices_value = []
+        for player in current_sesson.players:
+            summary_dices_amount += player.dice_amount
+            summary_dices_value += player.dice_value
+            await message.answer(f"{player.p_name}:\r\nКоличество костей: {player.dice_amount}\r\nНоминалы костей: {player.dice_value}")
+        count_of_amount = 0
+        for i in summary_dices_value:
+            if str(i) == str(b1):
+                count_of_amount+=1
+        previos_person = ""
+        index = current_sesson.turn_order.index(message.from_user.first_name)
+        if index != 0:
+            previos_person = current_sesson.turn_order[index-1]
+        else:
+            previos_person = current_sesson.turn_order[len(current_sesson.turn_order)-1]
+        if int(count_of_amount) < int(summary_dices_amount):
+            await message.answer(f"Победил - {message.from_user.first_name}\r\n{previos_person} - теряет одну кость.")
+        else:
+            await message.answer(f"Победил - {previos_person}\r\n{message.from_user.first_name} - теряет одну кость.")
+    else:
+            if gs.string_to_format(text):
+                text = str(gs.string_to_format(text)[1])
+                t1 = int(text[0])  # номинал текущей ставки
+                t2 = int(text[1])  # значение текущей ставки
+                if (((t1 > b1 and b1 != 1) or t1 == 1) and t2 == b2) or (t1 == b1 and t2 > b2):
+                    # первое число ставки больше прошлого первого числа ИЛИ второе число ставки больше прошлого второго числа
+                    # при этом если ввести 1, а в прошлой ставке было 6, то все ок!
+                    bet = gs.string_to_format(text)[1]
+                    current_sesson.current_bet = int(bet)
+                    value = gs.bet_to_format(bet)
+                    amount = bet[1]
+                    await message.answer(f"{current_person}, ваша ставка, что на столе:\r\n{value}: {amount} шт.")
+                    current_person = turn_order[current_sesson.c_p_t()]
+                    await state.update_data(bet=text, currnet_person=current_person)
+                    current_sesson.c_p_t()
+                    current_person = turn_order[current_sesson.current_turn]
+                    next_person_id = ""
+                    next_person_name = ""
+                    for count, value in enumerate(current_sesson.turn_order_ids):
+                        if str(value) == str(message.from_user.id):
+                            if count != len(current_sesson.turn_order_ids)-1:
+                                next_person_id = int(current_sesson.turn_order_ids[count + 1])
+                                next_person_name = current_sesson.turn_order[count + 1]
+                            else:
+                                next_person_id = int(current_sesson.turn_order_ids[0])
+                                next_person_name = current_sesson.turn_order[0]
+                    state_with: FSMContext = FSMContext(
+                        storage=dp.storage,
+                        key=StorageKey(
+                            chat_id=current_sesson.chat_id,  # если юзер в ЛС, то chat_id=user_id
+                            user_id=next_person_id,
+                            bot_id=bot.id))
+                    await state_with.set_state(s.Turn.raise_or_open)
+                    await state.set_state(None)
+                    await message.answer(
+                        f"Ходит: {next_person_name}\r\nТекущая ставка: {current_sesson.current_bet}\r\nСделайте ставку, если вы согласны или напишите 'нет'")
+                else:
+                    await message.delete()
+                    await message.answer("Вы можете только повышать ставку!")
+            else:
+                await message.delete()
+                await message.answer("Ошибка ввода")
 
 ###########
 
@@ -193,7 +352,7 @@ async def game_create(message : Message):
             i = 4
             builder = InlineKeyboardBuilder()
             await message.answer(f"{message.from_user.first_name} - Cоздает лобби игры")
-            for i in range(1,7):
+            for i in range(2,7):
                 builder.add(types.InlineKeyboardButton(
                 text=f"{i}",
                 callback_data=f"p{i}")
@@ -209,10 +368,13 @@ async def game_create(message : Message):
 @dp.callback_query(F.data == "continue")
 async def continue_game(callback : types.CallbackQuery):
     global game_master
-    await callback.message.delete()
-    builder = InlineKeyboardBuilder()
-    builder.row(types.InlineKeyboardButton(text="Открыть Лобби", callback_data="open"), types.InlineKeyboardButton(text="Удалить лобби", callback_data="distruct"))
-    await callback.message.answer(f"{game_master[f'{callback.from_user.id}']} - Открывает лобби", reply_markup=builder.as_markup())
+
+    if str(callback.from_user.id) in game_master:
+        await callback.message.delete()
+        builder = InlineKeyboardBuilder()
+        builder.row(types.InlineKeyboardButton(text="Открыть Лобби", callback_data="open"), types.InlineKeyboardButton(text="Удалить лобби", callback_data="distruct"))
+
+        await callback.message.answer(f"{game_master[f'{callback.from_user.id}']} - Открывает лобби", reply_markup=builder.as_markup())
 
 @dp.callback_query(F.data == "distruct")
 async def delete_lobby(callback : types.CallbackQuery):
@@ -249,89 +411,91 @@ async def delete_lobby(callback : types.CallbackQuery):
         g.queue_people_names = filtered_dict
     except KeyError:
         pass
-@dp.callback_query(F.data == "p1")
-async def p4(callback: types.CallbackQuery):
-    global game_max_players
-    game_max_players = 1
-    builder = InlineKeyboardBuilder()
-    for i in range(2, 7):
-        builder.add(types.InlineKeyboardButton(
-            text=f"{i}",
-            callback_data=f"p{i}")
-        )
-    builder.row(types.InlineKeyboardButton(text="Продолжить", callback_data="continue"),
-                types.InlineKeyboardButton(text="Удалить лобби", callback_data="distruct"))
-    await callback.message.edit_text(f"Настройки\nКоличество игроков: {game_max_players}", reply_markup=builder.as_markup())
 
 @dp.callback_query(F.data == "p2")
 async def p4(callback: types.CallbackQuery):
     global game_max_players
-    game_max_players = 2
-    builder = InlineKeyboardBuilder()
-    for i in range(2, 7):
-        builder.add(types.InlineKeyboardButton(
-            text=f"{i}",
-            callback_data=f"p{i}")
-        )
-    builder.row(types.InlineKeyboardButton(text="Продолжить", callback_data="continue"),
-                types.InlineKeyboardButton(text="Удалить лобби", callback_data="distruct"))
-    await callback.message.edit_text(f"Настройки\nКоличество игроков: {game_max_players}", reply_markup=builder.as_markup())
+    global game_master
+
+    if str(callback.from_user.id) in game_master:
+        game_max_players = 2
+        builder = InlineKeyboardBuilder()
+        for i in range(2, 7):
+            builder.add(types.InlineKeyboardButton(
+                text=f"{i}",
+                callback_data=f"p{i}")
+            )
+        builder.row(types.InlineKeyboardButton(text="Продолжить", callback_data="continue"),
+                    types.InlineKeyboardButton(text="Удалить лобби", callback_data="distruct"))
+        await callback.message.edit_text(f"Настройки\nКоличество игроков: {game_max_players}", reply_markup=builder.as_markup())
 
 @dp.callback_query(F.data == "p3")
 async def p4(callback: types.CallbackQuery):
     global game_max_players
-    game_max_players = 3
-    builder = InlineKeyboardBuilder()
-    for i in range(2, 7):
-        builder.add(types.InlineKeyboardButton(
-            text=f"{i}",
-            callback_data=f"p{i}")
-        )
-    builder.row(types.InlineKeyboardButton(text="Продолжить", callback_data="continue"),
-                types.InlineKeyboardButton(text="Удалить лобби", callback_data="distruct"))
-    await callback.message.edit_text(f"Настройки\nКоличество игроков: {game_max_players}", reply_markup=builder.as_markup())
+    global game_master
+
+    if str(callback.from_user.id) in game_master:
+        game_max_players = 3
+        builder = InlineKeyboardBuilder()
+        for i in range(2, 7):
+            builder.add(types.InlineKeyboardButton(
+                text=f"{i}",
+                callback_data=f"p{i}")
+            )
+        builder.row(types.InlineKeyboardButton(text="Продолжить", callback_data="continue"),
+                    types.InlineKeyboardButton(text="Удалить лобби", callback_data="distruct"))
+        await callback.message.edit_text(f"Настройки\nКоличество игроков: {game_max_players}", reply_markup=builder.as_markup())
 
 @dp.callback_query(F.data == "p4")
 async def p4(callback: types.CallbackQuery):
     global game_max_players
-    game_max_players = 4
-    builder = InlineKeyboardBuilder()
-    for i in range(2, 7):
-        builder.add(types.InlineKeyboardButton(
-            text=f"{i}",
-            callback_data=f"p{i}")
-        )
-    builder.row(types.InlineKeyboardButton(text="Продолжить", callback_data="continue"),
-                types.InlineKeyboardButton(text="Удалить лобби", callback_data="distruct"))
-    await callback.message.edit_text(f"Настройки\nКоличество игроков: {game_max_players}", reply_markup=builder.as_markup())
+    global game_master
+
+    if str(callback.from_user.id) in game_master:
+        game_max_players = 4
+        builder = InlineKeyboardBuilder()
+        for i in range(2, 7):
+            builder.add(types.InlineKeyboardButton(
+                text=f"{i}",
+                callback_data=f"p{i}")
+            )
+        builder.row(types.InlineKeyboardButton(text="Продолжить", callback_data="continue"),
+                    types.InlineKeyboardButton(text="Удалить лобби", callback_data="distruct"))
+        await callback.message.edit_text(f"Настройки\nКоличество игроков: {game_max_players}", reply_markup=builder.as_markup())
 
 @dp.callback_query(F.data == "p5")
 async def p5(callback: types.CallbackQuery):
     global game_max_players
-    game_max_players = 5
-    builder = InlineKeyboardBuilder()
-    for i in range(2, 7):
-        builder.add(types.InlineKeyboardButton(
-            text=f"{i}",
-            callback_data=f"p{i}")
-        )
-    builder.row(types.InlineKeyboardButton(text="Продолжить", callback_data="continue"),
-                types.InlineKeyboardButton(text="Удалить лобби", callback_data="distruct"))
-    await callback.message.edit_text(f"Настройки\nКоличество игроков: {game_max_players}", reply_markup=builder.as_markup())
+    global game_master
+
+    if str(callback.from_user.id) in game_master:
+        game_max_players = 5
+        builder = InlineKeyboardBuilder()
+        for i in range(2, 7):
+            builder.add(types.InlineKeyboardButton(
+                text=f"{i}",
+                callback_data=f"p{i}")
+            )
+        builder.row(types.InlineKeyboardButton(text="Продолжить", callback_data="continue"),
+                    types.InlineKeyboardButton(text="Удалить лобби", callback_data="distruct"))
+        await callback.message.edit_text(f"Настройки\nКоличество игроков: {game_max_players}", reply_markup=builder.as_markup())
 
 @dp.callback_query(F.data == "p6")
 async def p6(callback: types.CallbackQuery):
     global game_max_players
-    game_max_players = 6
-    builder = InlineKeyboardBuilder()
-    for i in range(2, 7):
-        builder.add(types.InlineKeyboardButton(
-            text=f"{i}",
-            callback_data=f"p{i}")
-        )
-    builder.row(types.InlineKeyboardButton(text="Продолжить", callback_data="continue"),
-                types.InlineKeyboardButton(text="Удалить лобби", callback_data="distruct"))
-    await callback.message.edit_text(f"Настройки\nКоличество игроков: {game_max_players}", reply_markup=builder.as_markup())
+    global game_master
+
+    if str(callback.from_user.id) in game_master:
+        game_max_players = 6
+        builder = InlineKeyboardBuilder()
+        for i in range(2, 7):
+            builder.add(types.InlineKeyboardButton(
+                text=f"{i}",
+                callback_data=f"p{i}")
+            )
+        builder.row(types.InlineKeyboardButton(text="Продолжить", callback_data="continue"),
+                    types.InlineKeyboardButton(text="Удалить лобби", callback_data="distruct"))
+        await callback.message.edit_text(f"Настройки\nКоличество игроков: {game_max_players}", reply_markup=builder.as_markup())
 
 @dp.callback_query(F.data =="open")
 async def display_rules(callback : types.CallbackQuery):
@@ -455,6 +619,7 @@ async def send_message(callback: types.CallbackQuery, state : FSMContext):
         #Начало сессии
         player_names = []
         player_ids = []
+        chat_id = callback.message.chat.id
 
         #Заполнение всех имен пользваотелей
         for key, value in g.queue_people_names.items():
@@ -464,34 +629,26 @@ async def send_message(callback: types.CallbackQuery, state : FSMContext):
         for key, value in g.queue_people.items():
             if str(value) == str(id_needed_lobby[len(id_needed_lobby)-2]):
                 player_ids.append(key)
-        #Создание сесси со всеми данными о пользователях
-        sessions.append(Session(id_needed_lobby[len(id_needed_lobby)-2], player_names, player_ids))
-        #Заполнение Данных о пользователе в экземпляры Players
+
+        # Заполнение Данных о пользователе в экземпляры Players
+        players = []
         for i in range(len(player_names)):
             random_value = []
             for j in range(5):
                 random_value.append(randint(1, 6))
             players.append(Player(player_ids[i], player_names[i], 5, random_value))
 
-        #Проверка данных-------------------
-        for i in range(0,2):
-            print()
-            print(players[i].p_id)
-            print(players[i].p_name)
-            print(players[i].dice_amount)
-            print(players[i].dice_value)
-            print()
-        # Проверка данных-------------------
-
+        #Создание сессии со всеми данными о пользователях
+        sessions.append(Session(id_needed_lobby[len(id_needed_lobby)-2], player_names, player_ids, chat_id, players=players))
         chat_id = callback.message.chat.id
 
         # Запуск игры
         #Запуск последней созданной сессии и заполнение очереди в start_game и отправка в лс костей для игры
-        await sessions[len(sessions)-1].start_game(players, chat_id=chat_id)
+        await sessions[len(sessions)-1].start_game(players)
         await callback.message.answer(f"{callback.from_user.first_name}, для начала игры введите /startgame")
 
         #очистка пользователей
-        players.clear()
+        players = []
         await callback.message.delete()
 
 
