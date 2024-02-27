@@ -118,21 +118,21 @@ class Session():
         c_id = p.p_id
 
         dices = p.dice_value
-        await bot.send_message(chat_id= c_id, text=f"Ваши кости: {dices}")
-        time.sleep(1)
-        for i in dices:
-            if i == 1:
-                await bot.send_sticker(chat_id= c_id, sticker=self.dice_stickers[0])
-            elif i == 2:
-                await bot.send_sticker(chat_id= c_id,sticker=self.dice_stickers[1])
-            elif i == 3:
-                await bot.send_sticker(chat_id= c_id,sticker=self.dice_stickers[2])
-            elif i == 4:
-                await bot.send_sticker(chat_id= c_id,sticker=self.dice_stickers[3])
-            elif i == 5:
-                await bot.send_sticker(chat_id= c_id,sticker=self.dice_stickers[4])
-            else:
-                await bot.send_sticker(chat_id= c_id,sticker=self.dice_stickers[5])
+        #await bot.send_message(chat_id= c_id, text=f"Ваши кости: {dices}")
+        time.sleep(2)
+        # for i in dices:
+        #     if i == 1:
+        #         await bot.send_sticker(chat_id= c_id, sticker=self.dice_stickers[0])
+        #     elif i == 2:
+        #         await bot.send_sticker(chat_id= c_id,sticker=self.dice_stickers[1])
+        #     elif i == 3:
+        #         await bot.send_sticker(chat_id= c_id,sticker=self.dice_stickers[2])
+        #     elif i == 4:
+        #         await bot.send_sticker(chat_id= c_id,sticker=self.dice_stickers[3])
+        #     elif i == 5:
+        #         await bot.send_sticker(chat_id= c_id,sticker=self.dice_stickers[4])
+        #     else:
+        #         await bot.send_sticker(chat_id= c_id,sticker=self.dice_stickers[5])
         await bot.send_message(chat_id=c_id, text=f"Ваши кости: {dices}")
 
     async def start_game(self, p : Player):
@@ -170,8 +170,84 @@ g = Game()
 
 async def c_s(message: Message, s): #current_session
     for i in s:
-        if message.from_user.first_name in i.player_name:
+        if str(message.from_user.first_name) in str(i.player_name):
             return i
+def lose_dice(s, wanted_player):
+    for i in s.players:
+        if str(wanted_player) == str(i.p_name):
+            s.players[s.players.index(i)].dice_amount -= 1
+            return s.players[s.players.index(i)].dice_amount
+            break
+
+async def lose_game(player_dice, current_player_index,current_session: Session, message : Message, state: FSMContext, current_person):
+    if player_dice <= 0:
+        print("Gamers left: ", current_session.players)
+        loser = current_session.players.pop(current_player_index)
+        print("Gamers left: ",current_session.players)
+        await message.answer(f"{loser.p_name} - Проиграл все свои кости!")
+        if str(message.from_user.first_name) == str(current_person):
+            await state.set_state(None)
+        else:
+            if current_player_index != 0:
+                previous_person_id = current_session.turn_order_ids[current_player_index-1]
+            else:
+                previous_person_id = current_session.turn_order_ids[len(current_session.turn_order_ids)-1]
+            state_with: FSMContext = FSMContext(
+                storage=dp.storage,
+                key=StorageKey(
+                    chat_id=current_session.chat_id,  # если юзер в ЛС, то chat_id=user_id
+                    user_id=previous_person_id,
+                    bot_id=bot.id))
+            await state_with.set_state(None)
+    if (len(current_session.players) == 1):
+        await state.set_state(None)
+        await message.answer(f"ИГРА ОКОНЧЕНА!\r\nПобедитель: {current_session.players[0].p_name}!")
+        return True
+    else:
+        return False
+async def reload(current_sesson: Session, message: Message, state: FSMContext):
+    turn_order = current_sesson.turn_order
+    current_sesson.current_turn = 0
+    current_person = turn_order[current_sesson.current_turn]
+    next_person_id = ""
+    next_person_name = ""
+    for count, value in enumerate(current_sesson.turn_order_ids):
+        if str(value) == str(message.from_user.id):
+            if count != len(current_sesson.turn_order_ids) - 1:
+                next_person_id = int(current_sesson.turn_order_ids[count + 1])
+                next_person_name = current_sesson.turn_order[count + 1]
+            else:
+                next_person_id = int(current_sesson.turn_order_ids[0])
+                next_person_name = current_sesson.turn_order[0]
+    state_with: FSMContext = FSMContext(
+        storage=dp.storage,
+        key=StorageKey(
+            chat_id=current_sesson.chat_id,  # если юзер в ЛС, то chat_id=user_id
+            user_id=next_person_id,
+            bot_id=bot.id))
+    flag = False
+    for i in current_sesson.players:
+        if i.dice_amount != 5:
+            flag = True
+            break
+    if flag:
+        for i in current_sesson.players:
+            random_value = []
+            for j in range(0, i.dice_amount):
+                random_value.append(randint(1, 6))
+            i.dice_value = random_value
+        for k in current_sesson.players:
+            await current_sesson.int_into_emoji(k)
+    if str(current_person) == str(message.from_user.first_name):
+        await message.answer(
+            f"Ходит: {current_sesson.turn_order[current_sesson.current_turn]}\r\nCделайте ставку, введя две цифры, где:\r\nПервая - Номинал\r\nВторая - Количество")
+        await state.set_state(s.Turn.israise)
+
+    else:
+        await message.answer(f"Ходит: {current_sesson.turn_order[current_sesson.current_turn]}")
+        await state.set_state(None)
+        await state_with.set_state(s.Turn.israise)
+
 @dp.message(F.text.lower() == "/startgame")
 async def game_beggin(message : Message,  state: FSMContext):
     #проверка, является ли человек участником последнего лобби и является ли он создателем этого лобби.
@@ -209,6 +285,7 @@ async def game_beggin(message : Message,  state: FSMContext):
 
 @dp.message(s.Turn.israise)
 async def raise_state(message: Message, state: FSMContext):
+
     text = message.text
     current_sesson = await c_s(message, sessions)
     turn_order = current_sesson.turn_order
@@ -240,11 +317,10 @@ async def raise_state(message: Message, state: FSMContext):
                 bot_id=bot.id))
         await state_with.set_state(s.Turn.raise_or_open)
         await state.set_state(None)
-        await message.answer(f"Ходит: {next_person_name}\r\nТекущая ставка: {current_sesson.current_bet}\r\nСделайте ставку, если вы согласны или напишите 'нет'")
+        await message.answer(f"Ходит: {next_person_name}\r\nТекущая ставка: {current_sesson.current_bet}\r\nСделайте ставку, если вы согласны или напишите 'нет'",reply_markup=kb.disagree_kb())
     else:
         await message.delete()
         await message.answer("Ошибка ввода")
-        await raise_state(message, state, current_person)
 
 @dp.message(s.Turn.raise_or_open)
 async def roo(message : Message, state : FSMContext):
@@ -259,6 +335,7 @@ async def roo(message : Message, state : FSMContext):
     b2 = int(bet[1])  # значение прошлой ставки
     if text.lower() == 'нет' or text.lower() == 'не cогласен' or text.lower() == 'не':
         await message.answer(f"{current_person} - не согласен со ставкой! Вскрываемся.")
+        current_sesson.current_turn = 0
         summary_dices_amount = 0
         summary_dices_value = []
         for player in current_sesson.players:
@@ -267,18 +344,42 @@ async def roo(message : Message, state : FSMContext):
             await message.answer(f"{player.p_name}:\r\nКоличество костей: {player.dice_amount}\r\nНоминалы костей: {player.dice_value}")
         count_of_amount = 0
         for i in summary_dices_value:
-            if str(i) == str(b1):
-                count_of_amount+=1
+            if b1 == 1:
+                if str(i) == str(b1):
+                    count_of_amount+=1
+            else:
+                if str(i) == str(b1) or str(i) == "1":
+                    count_of_amount += 1
+        print("HERE",count_of_amount, b1, b2)
         previos_person = ""
         index = current_sesson.turn_order.index(message.from_user.first_name)
         if index != 0:
             previos_person = current_sesson.turn_order[index-1]
+            p_p_id = current_sesson.turn_order_ids[index-1]
         else:
             previos_person = current_sesson.turn_order[len(current_sesson.turn_order)-1]
-        if int(count_of_amount) < int(summary_dices_amount):
+            p_p_id = current_sesson.turn_order_ids[len(current_sesson.turn_order)-1]
+        if int(count_of_amount) < int(b2):
+            dices = lose_dice(current_sesson, previos_person)
+            for i in current_sesson.players:
+                if str(i.p_name) == str(previos_person):
+                    index = current_sesson.turn_order.index(previos_person)
+                    break
             await message.answer(f"Победил - {message.from_user.first_name}\r\n{previos_person} - теряет одну кость.")
+            flag1 = await lose_game(current_sesson.players[index].dice_amount, index, current_sesson, message, state, current_person)
+            if flag1:
+                return 0
+            await reload(current_sesson=current_sesson, message=message,state=state)
+            await bot.send_message(chat_id=p_p_id, text=f"Вы потеряли кость.\r\nУ вас осталось: {dices}")
         else:
+            dices = lose_dice(current_sesson, message.from_user.first_name)
+
             await message.answer(f"Победил - {previos_person}\r\n{message.from_user.first_name} - теряет одну кость.")
+            flag1 = await lose_game(current_sesson.players[index].dice_amount, index, current_sesson, message, state, current_person)
+            if flag1:
+                return 0
+            await reload(current_sesson=current_sesson, message=message, state=state)
+            await bot.send_message(chat_id=message.from_user.id, text=f"Вы потеряли кость.\r\nУ вас осталось: {dices}")
     else:
             if gs.string_to_format(text):
                 text = str(gs.string_to_format(text)[1])
