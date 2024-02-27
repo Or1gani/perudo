@@ -2,10 +2,12 @@ import asyncio
 import logging
 import sys
 import time
+from typing import List
 
 import aiogram.exceptions
 import aiogram
 from os import getenv
+
 
 from aiogram.fsm.storage.base import StorageKey
 from config import TOKEN
@@ -168,6 +170,35 @@ sessions = []
 g = Game()
 #Gamebeggin
 
+async def state_change(p: List[Player], current_session: Session, player_need_to_set_state_id, active_state):
+# player_need_to_set_state_id - Игрок КОТОРЫЙ ходит следующим получает актив-стейт, другие None - ожидают хода.
+    for i in p:
+        if str(i.p_id) == str(player_need_to_set_state_id):
+            state_with: FSMContext = FSMContext(
+                storage=dp.storage,
+                key=StorageKey(
+                    chat_id=int(current_session.chat_id),  # если юзер в ЛС, то chat_id=user_id
+                    user_id=int(player_need_to_set_state_id),
+                    bot_id=int(bot.id)))
+            await state_with.set_state(active_state)
+            print(player_need_to_set_state_id, active_state)
+            print(await dp.storage.get_state(key=StorageKey(chat_id=current_session.chat_id,  # если юзер в ЛС, то chat_id=user_id
+                    user_id=player_need_to_set_state_id,
+                    bot_id=bot.id)))
+        else:
+            state_with: FSMContext = FSMContext(
+                storage=dp.storage,
+                key=StorageKey(
+                    chat_id=int(current_session.chat_id),  # если юзер в ЛС, то chat_id=user_id
+                    user_id=int(i.p_id),
+                    bot_id=int(bot.id)))
+            await state_with.set_state(None)
+            print(i.p_id, None)
+            print(await dp.storage.get_state(key=StorageKey(chat_id=current_session.chat_id,  # если юзер в ЛС, то chat_id=user_id
+                    user_id=i.p_id,
+                    bot_id=bot.id)))
+
+
 async def c_s(message: Message, s): #current_session
     for i in s:
         if str(message.from_user.first_name) in str(i.player_name):
@@ -185,22 +216,10 @@ async def lose_game(player_dice, current_player_index,current_session: Session, 
         loser = current_session.players.pop(current_player_index)
         print("Gamers left: ",current_session.players)
         await message.answer(f"{loser.p_name} - Проиграл все свои кости!")
-        if str(message.from_user.first_name) == str(current_person):
-            await state.set_state(None)
-        else:
-            if current_player_index != 0:
-                previous_person_id = current_session.turn_order_ids[current_player_index-1]
-            else:
-                previous_person_id = current_session.turn_order_ids[len(current_session.turn_order_ids)-1]
-            state_with: FSMContext = FSMContext(
-                storage=dp.storage,
-                key=StorageKey(
-                    chat_id=current_session.chat_id,  # если юзер в ЛС, то chat_id=user_id
-                    user_id=previous_person_id,
-                    bot_id=bot.id))
-            await state_with.set_state(None)
+
+        await state_change(current_session.players, current_session, 0, None)
     if (len(current_session.players) == 1):
-        await state.set_state(None)
+        await state_change(current_session.players, current_session, 0, None)
         await message.answer(f"ИГРА ОКОНЧЕНА!\r\nПобедитель: {current_session.players[0].p_name}!")
         return True
     else:
@@ -219,12 +238,6 @@ async def reload(current_sesson: Session, message: Message, state: FSMContext):
             else:
                 next_person_id = int(current_sesson.turn_order_ids[0])
                 next_person_name = current_sesson.turn_order[0]
-    state_with: FSMContext = FSMContext(
-        storage=dp.storage,
-        key=StorageKey(
-            chat_id=current_sesson.chat_id,  # если юзер в ЛС, то chat_id=user_id
-            user_id=next_person_id,
-            bot_id=bot.id))
     flag = False
     for i in current_sesson.players:
         if i.dice_amount != 5:
@@ -238,92 +251,79 @@ async def reload(current_sesson: Session, message: Message, state: FSMContext):
             i.dice_value = random_value
         for k in current_sesson.players:
             await current_sesson.int_into_emoji(k)
-    if str(current_person) == str(message.from_user.first_name):
-        await message.answer(
-            f"Ходит: {current_sesson.turn_order[current_sesson.current_turn]}\r\nCделайте ставку, введя две цифры, где:\r\nПервая - Номинал\r\nВторая - Количество")
-        await state.set_state(s.Turn.israise)
-
-    else:
-        await message.answer(f"Ходит: {current_sesson.turn_order[current_sesson.current_turn]}")
-        await state.set_state(None)
-        await state_with.set_state(s.Turn.israise)
+    await message.answer(
+        f"Ходит: {current_sesson.turn_order[current_sesson.current_turn]}\r\nCделайте ставку, введя две цифры, где:\r\nПервая - Номинал\r\nВторая - Количество")
+    await state_change(current_sesson.players, current_sesson, int(current_sesson.turn_order_ids[current_sesson.current_turn]), s.Turn.israise)
 
 @dp.message(F.text.lower() == "/startgame")
 async def game_beggin(message : Message,  state: FSMContext):
     #проверка, является ли человек участником последнего лобби и является ли он создателем этого лобби.
-    if f"{message.from_user.id}" in sessions[len(sessions)-1].player_id and str(message.from_user.id) in game_master:
-        current_sesson = await c_s(message, sessions)
-        turn_order = current_sesson.turn_order
-        current_person = turn_order[current_sesson.c_p_t()]
-        next_person_id = ""
-        next_person_name = ""
-        for count, value in enumerate(current_sesson.turn_order_ids):
-            if str(value) == str(message.from_user.id):
-                if count != len(current_sesson.turn_order_ids) - 1:
-                    next_person_id = int(current_sesson.turn_order_ids[count + 1])
-                    next_person_name = current_sesson.turn_order[count + 1]
-                else:
-                    next_person_id = int(current_sesson.turn_order_ids[0])
-                    next_person_name = current_sesson.turn_order[0]
-
-        state_with: FSMContext = FSMContext(
-            storage=dp.storage,
-            key=StorageKey(
-                chat_id=current_sesson.chat_id,  # если юзер в ЛС, то chat_id=user_id
-                user_id=next_person_id,
-                bot_id=bot.id))
-        if str(current_person) == str(message.from_user.first_name):
+    current_sesson = await c_s(message, sessions)
+    flag = False
+    for i in current_sesson.players:
+        if flag:
+            break
+        if str(message.from_user.id) in str(i.p_id):
+            turn_order = current_sesson.turn_order
+            current_person = turn_order[current_sesson.c_p_t()]
+            current_person_id = current_sesson.turn_order_ids[current_sesson.current_turn]
+            print(current_person_id)
+            next_person_id = ""
+            next_person_name = ""
+            for count, value in enumerate(current_sesson.turn_order_ids):
+                if str(value) == str(message.from_user.id):
+                    if count != len(current_sesson.turn_order_ids) - 1:
+                        next_person_id = int(current_sesson.turn_order_ids[count + 1])
+                        next_person_name = current_sesson.turn_order[count + 1]
+                    else:
+                        next_person_id = int(current_sesson.turn_order_ids[0])
+                        next_person_name = current_sesson.turn_order[0]
             await message.answer(f"Ходит: {current_sesson.turn_order[current_sesson.current_turn]}\r\nCделайте ставку, введя две цифры, где:\r\nПервая - Номинал\r\nВторая - Количество")
-            await state.set_state(s.Turn.israise)
+            await state_change(current_sesson.players, current_sesson, int(current_person_id), s.Turn.israise)
 
-        else:
-            await message.answer(f"Ходит: {current_sesson.turn_order[current_sesson.current_turn]}")
-            await state.set_state(None)
-            await state_with.set_state(s.Turn.israise)
-
+            flag = True
 
 
 @dp.message(s.Turn.israise)
 async def raise_state(message: Message, state: FSMContext):
-
+    print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
     text = message.text
     current_sesson = await c_s(message, sessions)
     turn_order = current_sesson.turn_order
     current_person = turn_order[current_sesson.c_p_t()]
+
     if gs.string_to_format(text):
         bet = gs.string_to_format(text)[1]
         current_sesson.current_bet = int(bet)
         value = gs.bet_to_format(bet)
-        amount = bet[1]
-        await message.answer(f"{current_person}, ваша ставка, что на столе:\r\n{value}: {amount} шт.")
-        await state.update_data(bet=text,currnet_person=current_person) # пример {'israise': '12'} 12 это ставка
-        current_sesson.c_p_t()
-        current_person = turn_order[current_sesson.current_turn]
-        next_person_id = ""
-        next_person_name = ""
-        for count, value in enumerate(current_sesson.turn_order_ids):
-            if str(value) == str(message.from_user.id):
-                if count != len(current_sesson.turn_order_ids)-1:
-                    next_person_id = int(current_sesson.turn_order_ids[count+1])
-                    next_person_name = current_sesson.turn_order[count+1]
-                else:
-                    next_person_id = int(current_sesson.turn_order_ids[0])
-                    next_person_name = current_sesson.turn_order[0]
-        state_with: FSMContext = FSMContext(
-            storage=dp.storage,
-            key=StorageKey(
-                chat_id=current_sesson.chat_id,  # если юзер в ЛС, то chat_id=user_id
-                user_id=next_person_id,
-                bot_id=bot.id))
-        await state_with.set_state(s.Turn.raise_or_open)
-        await state.set_state(None)
-        await message.answer(f"Ходит: {next_person_name}\r\nТекущая ставка: {current_sesson.current_bet}\r\nСделайте ставку, если вы согласны или напишите 'нет'",reply_markup=kb.disagree_kb())
+        if value != False:
+            amount = bet[1]
+            await message.answer(f"{current_person}, ваша ставка, что на столе:\r\n{value}: {amount} шт.")
+            await state.update_data(bet=text,currnet_person=current_person) # пример {'israise': '12'} 12 это ставка
+            current_sesson.c_p_t()
+            current_person = turn_order[current_sesson.current_turn]
+            next_person_id = ""
+            next_person_name = ""
+            for count, value in enumerate(current_sesson.turn_order_ids):
+                if str(value) == str(message.from_user.id):
+                    if count != len(current_sesson.turn_order_ids)-1:
+                        next_person_id = int(current_sesson.turn_order_ids[count+1])
+                        next_person_name = current_sesson.turn_order[count+1]
+                    else:
+                        next_person_id = int(current_sesson.turn_order_ids[0])
+                        next_person_name = current_sesson.turn_order[0]
+            await state_change(current_sesson.players, current_sesson, int(next_person_id), s.Turn.raise_or_open)
+            await message.answer(f"Ходит: {next_person_name}\r\nТекущая ставка: {current_sesson.current_bet}\r\nСделайте ставку, если вы согласны или напишите 'нет'",reply_markup=kb.disagree_kb())
+        else:
+            await message.delete()
+            await message.answer("Ошибка ввода")
     else:
         await message.delete()
         await message.answer("Ошибка ввода")
 
 @dp.message(s.Turn.raise_or_open)
 async def roo(message : Message, state : FSMContext):
+    print("RAISEOROPEN__________________________________________________________________")
     text = message.text
     current_sesson = await c_s(message, sessions)
     turn_order = current_sesson.turn_order
@@ -382,41 +382,41 @@ async def roo(message : Message, state : FSMContext):
             await bot.send_message(chat_id=message.from_user.id, text=f"Вы потеряли кость.\r\nУ вас осталось: {dices}")
     else:
             if gs.string_to_format(text):
+
                 text = str(gs.string_to_format(text)[1])
                 t1 = int(text[0])  # номинал текущей ставки
                 t2 = int(text[1])  # значение текущей ставки
-                if (((t1 > b1 and b1 != 1) or t1 == 1) and t2 == b2) or (t1 == b1 and t2 > b2):
+                print(b1, b2)
+                print(t1, t2)
+                if (((t1 > b1 and b1 != 1) or (t1 == 1 and b1 != 1)) and t2 == b2) or (t1 == b1 and t2 > b2):
                     # первое число ставки больше прошлого первого числа ИЛИ второе число ставки больше прошлого второго числа
                     # при этом если ввести 1, а в прошлой ставке было 6, то все ок!
                     bet = gs.string_to_format(text)[1]
                     current_sesson.current_bet = int(bet)
                     value = gs.bet_to_format(bet)
-                    amount = bet[1]
-                    await message.answer(f"{current_person}, ваша ставка, что на столе:\r\n{value}: {amount} шт.")
-                    current_person = turn_order[current_sesson.c_p_t()]
-                    await state.update_data(bet=text, currnet_person=current_person)
-                    current_sesson.c_p_t()
-                    current_person = turn_order[current_sesson.current_turn]
-                    next_person_id = ""
-                    next_person_name = ""
-                    for count, value in enumerate(current_sesson.turn_order_ids):
-                        if str(value) == str(message.from_user.id):
-                            if count != len(current_sesson.turn_order_ids)-1:
-                                next_person_id = int(current_sesson.turn_order_ids[count + 1])
-                                next_person_name = current_sesson.turn_order[count + 1]
-                            else:
-                                next_person_id = int(current_sesson.turn_order_ids[0])
-                                next_person_name = current_sesson.turn_order[0]
-                    state_with: FSMContext = FSMContext(
-                        storage=dp.storage,
-                        key=StorageKey(
-                            chat_id=current_sesson.chat_id,  # если юзер в ЛС, то chat_id=user_id
-                            user_id=next_person_id,
-                            bot_id=bot.id))
-                    await state_with.set_state(s.Turn.raise_or_open)
-                    await state.set_state(None)
-                    await message.answer(
-                        f"Ходит: {next_person_name}\r\nТекущая ставка: {current_sesson.current_bet}\r\nСделайте ставку, если вы согласны или напишите 'нет'")
+                    if value != False:
+                        amount = bet[1]
+                        await message.answer(f"{current_person}, ваша ставка, что на столе:\r\n{value}: {amount} шт.")
+                        current_person = turn_order[current_sesson.c_p_t()]
+                        await state.update_data(bet=text, currnet_person=current_person)
+                        current_sesson.c_p_t()
+                        current_person = turn_order[current_sesson.current_turn]
+                        next_person_id = ""
+                        next_person_name = ""
+                        for count, value in enumerate(current_sesson.turn_order_ids):
+                            if str(value) == str(message.from_user.id):
+                                if count != len(current_sesson.turn_order_ids)-1:
+                                    next_person_id = int(current_sesson.turn_order_ids[count + 1])
+                                    next_person_name = current_sesson.turn_order[count + 1]
+                                else:
+                                    next_person_id = int(current_sesson.turn_order_ids[0])
+                                    next_person_name = current_sesson.turn_order[0]
+                        await state_change(current_sesson.players, current_sesson, int(next_person_id), s.Turn.raise_or_open)
+                        await message.answer(
+                            f"Ходит: {next_person_name}\r\nТекущая ставка: {current_sesson.current_bet}\r\nСделайте ставку, если вы согласны или напишите 'нет'")
+                    else:
+                        await message.delete()
+                        await message.answer("Ошибка ввода")
                 else:
                     await message.delete()
                     await message.answer("Вы можете только повышать ставку!")
@@ -435,7 +435,7 @@ async def csh(message: Message):
         [types.KeyboardButton(text="Правила")]
 
     ]
-    start_kb = types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
+    start_kb = types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True, one_time_keyboard=True)
     await message.answer(f"Привет, {hbold(message.from_user.full_name)}!", reply_markup=start_kb)
     chat_id = message.chat.id
 

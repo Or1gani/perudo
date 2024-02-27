@@ -7,5 +7,5 @@ def disagree_kb():
     kb = [
         [KeyboardButton(text="Нет")],
     ]
-    start_kb = ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
+    start_kb = ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True, one_time_keyboard=True)
     return start_kb

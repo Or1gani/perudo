@@ -37,3 +37,5 @@ def bet_to_format(text):
     keys = {"1":"Единица", "2":"Двойка", "3":"Тройка", "4":"Четверка", "5":"Пятерка", "6":"Шестерка"}
     if text[0] in keys:
         return keys[text[0]]
+    else:
+        return False
