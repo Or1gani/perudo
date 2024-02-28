@@ -213,13 +213,21 @@ def lose_dice(s, wanted_player):
 async def lose_game(player_dice, current_player_index,current_session: Session, message : Message, state: FSMContext, current_person):
     if player_dice <= 0:
         print("Gamers left: ", current_session.players)
+        current_session.turn_order_ids.pop(current_player_index)
+        current_session.turn_order.pop(current_player_index)
         loser = current_session.players.pop(current_player_index)
+
         print("Gamers left: ",current_session.players)
         await message.answer(f"{loser.p_name} - Проиграл все свои кости!")
-
-        await state_change(current_session.players, current_session, 0, None)
+        state = FSMContext(storage=dp.storage, key=StorageKey(
+            chat_id=int(current_session.chat_id),
+            user_id=int(loser.p_id),
+            bot_id=int(bot.id)
+        ))
+        await state.set_state(None)
+        #await state_change(current_session.players, current_session, int(current_session.player_id[current_player_index]), None)
     if (len(current_session.players) == 1):
-        await state_change(current_session.players, current_session, 0, None)
+        await state_change(current_session.players, current_session, int(current_session.player_id[current_player_index]), None)
         await message.answer(f"ИГРА ОКОНЧЕНА!\r\nПобедитель: {current_session.players[0].p_name}!")
         return True
     else:
@@ -324,8 +332,12 @@ async def raise_state(message: Message, state: FSMContext):
 @dp.message(s.Turn.raise_or_open)
 async def roo(message : Message, state : FSMContext):
     print("RAISEOROPEN__________________________________________________________________")
-    text = message.text
     current_sesson = await c_s(message, sessions)
+    if str(message.from_user.first_name) in str(current_sesson.turn_order):
+        index = current_sesson.turn_order.index(message.from_user.first_name)
+    else:
+        return
+    text = message.text
     turn_order = current_sesson.turn_order
     current_person = message.from_user.first_name
 
@@ -350,9 +362,8 @@ async def roo(message : Message, state : FSMContext):
             else:
                 if str(i) == str(b1) or str(i) == "1":
                     count_of_amount += 1
-        print("HERE",count_of_amount, b1, b2)
         previos_person = ""
-        index = current_sesson.turn_order.index(message.from_user.first_name)
+
         if index != 0:
             previos_person = current_sesson.turn_order[index-1]
             p_p_id = current_sesson.turn_order_ids[index-1]
@@ -386,8 +397,6 @@ async def roo(message : Message, state : FSMContext):
                 text = str(gs.string_to_format(text)[1])
                 t1 = int(text[0])  # номинал текущей ставки
                 t2 = int(text[1])  # значение текущей ставки
-                print(b1, b2)
-                print(t1, t2)
                 if (((t1 > b1 and b1 != 1) or (t1 == 1 and b1 != 1)) and t2 == b2) or (t1 == b1 and t2 > b2):
                     # первое число ставки больше прошлого первого числа ИЛИ второе число ставки больше прошлого второго числа
                     # при этом если ввести 1, а в прошлой ставке было 6, то все ок!
@@ -401,16 +410,18 @@ async def roo(message : Message, state : FSMContext):
                         await state.update_data(bet=text, currnet_person=current_person)
                         current_sesson.c_p_t()
                         current_person = turn_order[current_sesson.current_turn]
-                        next_person_id = ""
+                        next_person_id = 0
                         next_person_name = ""
                         for count, value in enumerate(current_sesson.turn_order_ids):
                             if str(value) == str(message.from_user.id):
+                                print(current_sesson.turn_order_ids)
                                 if count != len(current_sesson.turn_order_ids)-1:
                                     next_person_id = int(current_sesson.turn_order_ids[count + 1])
                                     next_person_name = current_sesson.turn_order[count + 1]
                                 else:
                                     next_person_id = int(current_sesson.turn_order_ids[0])
                                     next_person_name = current_sesson.turn_order[0]
+                            print(next_person_id, type(next_person_id))
                         await state_change(current_sesson.players, current_sesson, int(next_person_id), s.Turn.raise_or_open)
                         await message.answer(
                             f"Ходит: {next_person_name}\r\nТекущая ставка: {current_sesson.current_bet}\r\nСделайте ставку, если вы согласны или напишите 'нет'")
